@@ -1,0 +1,14 @@
+{
+  "dependencies": {
+    "express": "^5.1.0",
+    "express-validator": "^7.3.0",
+    "mongoose": "^8.19.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.5",
+    "@types/express-validator": "^2.20.33",
+    "@types/mongoose": "^5.11.96",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4"
+  }
+}
