@@ -1,4 +1,4 @@
-import { Document, Schema, model, Model } from 'mongoose';
+import { Document, Schema, model } from 'mongoose';
 
 export interface IMessageScan extends Document {
   userId: Schema.Types.ObjectId;
@@ -37,6 +37,6 @@ const messageScanSchema: Schema = new Schema(
   }
 );
 
-const MessageScan: Model<IMessageScan> = model<IMessageScan>('MessageScan', messageScanSchema);
+const MessageScan = model<IMessageScan>('MessageScan', messageScanSchema);
 
 export default MessageScan;

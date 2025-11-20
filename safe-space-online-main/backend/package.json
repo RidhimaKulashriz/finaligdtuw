@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "nodemon src/server.ts",
     "build": "tsc",
-    "start": "node dist/app.js",
+    "start": "node dist/server.js",
+    "railway": "npm install && npm run build && npm start",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write .",
-    "prepare": "husky install",
+    "prepare": "[ -d .git ] && husky install || echo 'Skipping husky install (not a git repository)'",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

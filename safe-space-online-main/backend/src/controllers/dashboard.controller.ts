@@ -1,47 +1,40 @@
-import { Request, Response } from 'express';
-import mongoose from 'mongoose';
+// Third-party imports
+import type { Request, Response } from 'express';
+import mongoose, { Types } from 'mongoose';
 
+// Model imports
 import CommunityPost from '../models/communityPost.model';
+import type { ICommunityPost } from '../models/communityPost.model';
 import MessageScan from '../models/messageScan.model';
 import UrlScan from '../models/urlScan.model';
+ 
 
+// Define dashboard activity type
+interface DashboardActivity {
+  type: 'url' | 'message' | 'post';
+  content: string;
+  riskScore?: number;
+  timestamp: Date;
+}
+
+// Define dashboard achievement type
 interface DashboardAchievement {
   id: number;
   title: string;
   description: string;
   unlocked: boolean;
+  unlockedAt?: Date;
 }
 
-interface DashboardActivity {
-  type: 'url' | 'message' | 'post';
-  content: string;
-  riskScore: number;
-  timestamp: Date;
-}
-
-interface UrlScanResult {
-  url: string;
-  result: {
-    isSafe: boolean;
-    reason?: string;
-    riskScore?: number;
-    categories?: string[];
-  };
-  createdAt: Date;
-}
-
-interface MessageScanResult {
-  message: string;
-  result: {
-    isSafe: boolean;
-    issues?: string[];
-  };
-  timestamp: Date;
-}
-
-interface CommunityPostResult {
-  content: string;
-  createdAt: Date;
+// Extend Express Request type to include user
+declare module 'express-serve-static-core' {
+  interface Request {
+    user?: {
+      id: string;
+      username: string;
+      role?: string;
+    };
+  }
 }
 
 // @desc    Get dashboard data
@@ -49,15 +42,15 @@ interface CommunityPostResult {
 // @access  Private
 export const getDashboard = async (req: Request, res: Response): Promise<void> => {
   try {
+    // Get user ID from request
     const userId = req.user?.id;
-    const userRole = req.user?.role || 'teen';
-
-    if (!userId) {
-      res.status(401).json({ message: 'Not authorized: User ID not found in request' });
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      res.status(401).json({ message: 'Unauthorized' });
       return;
     }
 
     const userObjectId = new mongoose.Types.ObjectId(userId);
+    const userRole = req.user?.role ?? 'teen';
 
     // MongoDB not connected
     if (mongoose.connection.readyState !== 1) {
@@ -135,11 +128,11 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
     const [totalScans, safeScans, unsafeScans, avgRiskResult, totalMessages, totalPosts] =
       await Promise.all([
         UrlScan.countDocuments({ userId: userObjectId }),
-        UrlScan.countDocuments({ userId: userObjectId, riskScore: { $lt: 30 } }),
-        UrlScan.countDocuments({ userId: userObjectId, riskScore: { $gte: 70 } }),
+        UrlScan.countDocuments({ userId: userObjectId, 'result.riskScore': { $lt: 30 } }),
+        UrlScan.countDocuments({ userId: userObjectId, 'result.riskScore': { $gte: 70 } }),
         UrlScan.aggregate([
           { $match: { userId: userObjectId } },
-          { $group: { _id: null, avgRisk: { $avg: '$riskScore' } } },
+          { $group: { _id: null, avgRisk: { $avg: '$result.riskScore' } } },
         ]),
         MessageScan.countDocuments({ userId: userObjectId }),
         CommunityPost.countDocuments({ userId: userObjectId }),
@@ -151,35 +144,99 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
       UrlScan.find({ userId: userObjectId })
         .sort({ createdAt: -1 })
         .limit(5)
-        .select('url result createdAt'),
+        .select('url result createdAt')
+        .lean()
+        .exec(),
       MessageScan.find({ userId: userObjectId })
         .sort({ createdAt: -1 })
         .limit(5)
-        .select('message result timestamp'),
+        .select('message result timestamp')
+        .lean()
+        .exec(),
       CommunityPost.find({ userId: userObjectId })
         .sort({ createdAt: -1 })
         .limit(5)
-        .select('content createdAt'),
+        .select('content createdAt updatedAt')
+        .lean()
+        .exec(),
     ]);
 
+    // Define types for query results
+    interface LeanUrlScan {
+      _id: Types.ObjectId;
+      userId: Types.ObjectId;
+      url: string;
+      result: {
+        isSafe: boolean;
+        riskScore?: number;
+        reason?: string;
+        categories?: string[];
+      };
+      createdAt: Date;
+      updatedAt: Date;
+    }
+    
+    interface LeanMessageScan {
+      _id: Types.ObjectId;
+      userId: Types.ObjectId;
+      message: string;
+      result: {
+        isSafe: boolean;
+        issues?: string[];
+      };
+      timestamp: Date;
+    }
+    
+    // Map the results to the correct types with proper error handling
+    const typedScans = (recentScans as unknown as LeanUrlScan[]).map((scan) => ({
+      ...scan,
+      _id: new Types.ObjectId(scan._id.toString()),
+      userId: new Types.ObjectId(scan.userId.toString()),
+      createdAt: new Date(scan.createdAt),
+      updatedAt: new Date(scan.updatedAt),
+    }));
+    
+    const typedMessages = (recentMessages as unknown as LeanMessageScan[]).map((msg) => ({
+      ...msg,
+      _id: new Types.ObjectId(msg._id.toString()),
+      userId: new Types.ObjectId(msg.userId.toString()),
+      timestamp: new Date(msg.timestamp),
+    }));
+    
+    // Define a type that includes the user property for community posts
+    interface CommunityPostWithUser extends Omit<ICommunityPost, 'user' | '_id'> {
+      _id: Types.ObjectId;
+      user?: Types.ObjectId | string;
+      createdAt: Date;
+      updatedAt: Date;
+    }
+    
+    const typedPosts = (recentPosts as unknown as CommunityPostWithUser[]).map((post) => ({
+      ...post,
+      _id: new Types.ObjectId(post._id.toString()),
+      user: post.user ? new Types.ObjectId(post.user.toString()) : undefined,
+      createdAt: new Date(post.createdAt),
+      updatedAt: new Date(post.updatedAt),
+    }));
+
     const recentActivity: DashboardActivity[] = [
-      ...recentScans.map((scan: UrlScanResult) => ({
+      ...typedScans.map((scan) => ({
         type: 'url' as const,
         content: scan.url,
         riskScore: scan.result?.riskScore || 0,
-        timestamp: scan.createdAt,
+        timestamp: scan.createdAt || new Date(),
       })),
-      ...recentMessages.map((msg: MessageScanResult) => ({
+      ...typedMessages.map((msg) => ({
         type: 'message' as const,
-        content: msg.message ? msg.message.substring(0, 100) + '...' : '',
-        riskScore: msg.result?.isSafe ? 0 : 50,
+        content: msg.message,
+        riskScore: msg.result.isSafe ? 0 : 100,
         timestamp: msg.timestamp,
       })),
-      ...recentPosts.map((post: CommunityPostResult) => ({
+      ...typedPosts.map((post) => ({
         type: 'post' as const,
         content: post.content,
         riskScore: 0,
-        timestamp: post.createdAt,
+        timestamp: post.createdAt || new Date(),
       })),
     ]
       .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
@@ -223,3 +280,4 @@ export const getDashboard = async (req: Request, res: Response): Promise<void> =
     res.status(500).json({ message: errorMessage });
   }
 };
+
