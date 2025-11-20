@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 
-const { spawn } = require('child_process');
-const path = require('path');
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Change to backend directory and start the backend
-const backendPath = path.join(__dirname, 'backend');
+const backendPath = join(__dirname, 'backend');
 const child = spawn('npm', ['run', 'build'], {
   cwd: backendPath,
   stdio: 'inherit',
